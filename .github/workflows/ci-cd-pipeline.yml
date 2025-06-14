@@ -79,7 +79,7 @@ jobs:
 
       - name: Run SonarQube Analysis
         run: |
-          dotnet sonarscanner begin /k:"tvkaruba_eshop" /o:"tvkaruba" /d:sonar.host.url="https://sonarcloud.io" /d:sonar.login="${{ env.SONAR_TOKEN }}" /d:sonar.cs.opencover.reportsPaths="**/coverage/**/coverage.opencover.xml"
+          dotnet sonarscanner begin /k:"tvkaruba_eshop" /o:"tvkaruba" /d:sonar.host.url="https://sonarcloud.io" /d:sonar.login="${{ env.SONAR_TOKEN }}" /d:sonar.cs.opencover.reportsPaths="**/coverage/**/coverage.opencover.xml" /d:sonar.alm.enabled=false /d:sonar.qualitygate.wait=false
           dotnet build eShop.sln --no-restore
           dotnet sonarscanner end /d:sonar.login=${{ env.SONAR_TOKEN }}
 
