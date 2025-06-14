@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+option csharp_namespace = "Shared.Contracts.Payments";
+
+package payments;
+
+service PaymentsService{
+  rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
+  
+  rpc TopUpAccount(TopUpAccountRequest) returns (TopUpAccountResponse);
+  
+  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse);
+  
+  rpc ChargeAccount(ChargeAccountRequest) returns (ChargeAccountResponse);
+}
+
+message CreateAccountRequest {
+  string user_id = 1;
+}
+
+message CreateAccountResponse {
+  bool success = 1;
+  string message = 2;
+  string account_id = 3;
+}
+
+message TopUpAccountRequest {
+  string user_id = 1;
+  double amount = 2;
+}
+
+message TopUpAccountResponse {
+  bool success = 1;
+  string message = 2;
+  double new_balance = 3;
+}
+
+message GetBalanceRequest {
+  string user_id = 1;
+}
+
+message GetBalanceResponse {
+  bool success = 1;
+  string message = 2;
+  double balance = 3;
+  string account_id = 4;
+}
+
+message ChargeAccountRequest {
+  string user_id = 1;
+  double amount = 2;
+  string order_id = 3;
+  string idempotency_key = 4;
+}
+
+message ChargeAccountResponse {
+  bool success = 1;
+  string message = 2;
+  double remaining_balance = 3;
+  string transaction_id = 4;
+}

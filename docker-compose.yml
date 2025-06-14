@@ -1,0 +1,187 @@
+services:
+  # Инфраструктурные сервисы
+  postgres:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    ports:
+      - "9092:9092"
+    environment:
+      # KRaft режим
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:29093"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka:9092,CONTROLLER://kafka:29093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      
+      # Настройки для exactly-once
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_ENABLE_IDEMPOTENCE: 'true'
+      KAFKA_TRANSACTIONAL_ID_EXPIRATION_MS: 604800000
+      
+      # Общие настройки
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server kafka:9092 --list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - "8080:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_METRICS_PORT: 9997
+      DYNAMIC_CONFIG_ENABLED: 'true'
+
+  garnet:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  seq:
+    image: datalust/seq:latest
+    environment:
+      ACCEPT_EULA: "Y"
+    volumes:
+      - seq-data:/data
+    ports:
+      - "5341:80"
+      - "5342:5341"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Сервисы приложения
+  payments-service:
+    build:
+      context: .
+      dockerfile: PaymentsService/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      garnet:
+        condition: service_healthy
+      seq:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__PostgreSQL: "Host=postgres;Database=PaymentsDB;Username=postgres;Password=postgres;Port=5432"
+      ConnectionStrings__Kafka: "kafka:9092"
+      ConnectionStrings__Garnet: "garnet:6379"
+      ConnectionStrings__Seq: "http://seq:5341"
+    ports:
+      - "5001:5001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 10s
+      timeout: 5s
+
+  orders-service:
+    build:
+      context: .
+      dockerfile: OrdersService/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      garnet:
+        condition: service_healthy
+      seq:
+        condition: service_healthy
+      payments-service:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__PostgreSQL: "Host=postgres;Database=OrdersDB;Username=postgres;Password=postgres;Port=5432"
+      ConnectionStrings__Kafka: "kafka:9092"
+      ConnectionStrings__Garnet: "garnet:6379"
+      ConnectionStrings__Seq: "http://seq:5341"
+    ports:
+      - "5002:5002"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
+      interval: 10s
+      timeout: 5s
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: ApiGateway/Dockerfile
+    depends_on:
+      orders-service:
+        condition: service_healthy
+      payments-service:
+        condition: service_healthy
+      seq:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__PaymentsService: "http://payments-service:5001"
+      ConnectionStrings__OrdersService: "http://orders-service:5002"
+      ConnectionStrings__Seq: "http://seq:5341"
+    ports:
+      - "8000:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  es.client:
+    build:
+      context: .
+      dockerfile: ES.Client/Dockerfile
+    ports:
+      - "8081:80"
+    depends_on:
+      - api-gateway
+    networks:
+      - eshop-network
+
+volumes:
+  postgres-data:
+  kafka-data:
+  seq-data:
+
+networks:
+  eshop-network:
+    driver: bridge 
